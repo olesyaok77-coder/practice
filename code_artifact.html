@@ -1,0 +1,1367 @@
+<!DOCTYPE html>
+<html lang="ru" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Дом как место силы: Практика очищения</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Firebase SDK (v11.6.1) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Firebase Configuration
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        let currentUser = null;
+        let isSaving = false;
+
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        async function initAuth() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (err) {
+                console.error("Auth initialization error:", err);
+            }
+        }
+
+        onAuthStateChanged(auth, (user) => {
+            currentUser = user;
+            if (user) {
+                setupRealtimeSync(user.uid);
+            }
+        });
+
+        function setupRealtimeSync(userId) {
+            const userDocRef = doc(db, 'artifacts', appId, 'users', userId, 'data', 'answers');
+            
+            onSnapshot(userDocRef, (docSnap) => {
+                if (docSnap.exists() && !isSaving) {
+                    const data = docSnap.data();
+                    restoreFormData(data);
+                }
+            }, (error) => {
+                console.error("Error loading user data:", error);
+            });
+        }
+
+        async function saveFormData() {
+            if (!currentUser) return;
+            isSaving = true;
+
+            const formData = collectFormData();
+            const userDocRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'data', 'answers');
+
+            try {
+                await setDoc(userDocRef, {
+                    answers: formData,
+                    updatedAt: new Date().toISOString()
+                }, { merge: true });
+                showSaveStatus("Сохранено");
+            } catch (err) {
+                console.error("Save error:", err);
+            } finally {
+                setTimeout(() => { isSaving = false; }, 500);
+            }
+        }
+
+        const debouncedSave = debounce(saveFormData, 800);
+
+        function collectFormData() {
+            const inputs = document.querySelectorAll('input, textarea');
+            const data = {};
+            inputs.forEach((input, index) => {
+                const id = input.id || `input_${index}`;
+                if (input.type === 'checkbox') {
+                    data[id] = input.checked;
+                } else {
+                    data[id] = input.value;
+                }
+            });
+            return data;
+        }
+
+        function restoreFormData(docData) {
+            if (!docData || !docData.answers) return;
+            const answers = docData.answers;
+
+            const inputs = document.querySelectorAll('input, textarea');
+            inputs.forEach((input, index) => {
+                const id = input.id || `input_${index}`;
+                if (answers[id] !== undefined) {
+                    if (input.type === 'checkbox') {
+                        input.checked = answers[id];
+                    } else {
+                        input.value = answers[id];
+                    }
+                }
+            });
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initAuth();
+
+            document.querySelectorAll('input, textarea').forEach((input, index) => {
+                if (!input.id) input.id = `field_${index}`;
+                
+                if (input.type === 'checkbox') {
+                    input.addEventListener('change', () => {
+                        saveFormData();
+                    });
+                } else {
+                    input.addEventListener('input', () => {
+                        debouncedSave();
+                    });
+                }
+            });
+        });
+
+        window.clearAnswers = async function() {
+            if (!confirm("Вы уверены, что хотите очистить все свои ответы в гайде?")) return;
+            document.querySelectorAll('input, textarea').forEach(input => {
+                if (input.type === 'checkbox') input.checked = false;
+                else input.value = '';
+            });
+            await saveFormData();
+            showToast("Ответы очищены");
+        };
+
+        function showSaveStatus(msg) {
+            const badge = document.getElementById('save-badge');
+            if (badge) {
+                badge.innerText = msg;
+                badge.classList.remove('opacity-0');
+                setTimeout(() => badge.classList.add('opacity-0'), 2000);
+            }
+        }
+    </script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        serif: ['"Cormorant Garamond"', 'Georgia', 'serif'],
+                        sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+                    },
+                    colors: {
+                        lunar: {
+                            50: '#FBF9F5',
+                            100: '#F4EFE6',
+                            200: '#E7DDD0',
+                            300: '#D5C4B0',
+                            400: '#C0A78F',
+                            500: '#A88B70',
+                            600: '#8A6F56',
+                            700: '#6E5542',
+                            800: '#4D3B2E',
+                            900: '#2C221B',
+                        },
+                        night: {
+                            800: '#232936',
+                            900: '#181C26',
+                        },
+                        sage: {
+                            100: '#E8EFE8',
+                            500: '#7A917B',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #FBF9F5;
+            color: #2C221B;
+        }
+
+        .font-serif-title {
+            font-family: 'Cormorant Garamond', Georgia, serif;
+        }
+
+        /* Custom Checkbox Styling */
+        .custom-checkbox {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 1.35rem;
+            height: 1.35rem;
+            border: 2px solid #C0A78F;
+            border-radius: 0.375rem;
+            outline: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            background-color: #FFFFFF;
+        }
+
+        .custom-checkbox:checked {
+            background-color: #8A6F56;
+            border-color: #8A6F56;
+        }
+
+        .custom-checkbox:checked::after {
+            content: '✓';
+            color: #FFFFFF;
+            font-size: 0.9rem;
+            font-weight: bold;
+        }
+
+        .custom-checkbox:focus-visible {
+            ring: 2px;
+            ring-color: #A88B70;
+        }
+
+        /* Print Specifics */
+        @media print {
+            .no-print {
+                display: none !important;
+            }
+            body {
+                background: #FFFFFF !important;
+                color: #000000 !important;
+                padding: 0 !important;
+            }
+            .interactive-mode {
+                display: none !important;
+            }
+            .pdf-mode {
+                display: block !important;
+            }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between selection:bg-lunar-200">
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-6 right-6 z-50 transform translate-y-20 opacity-0 transition-all duration-300 bg-lunar-900 text-white px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 border border-lunar-700 pointer-events-none">
+        <i data-lucide="check-circle-2" class="w-5 h-5 text-lunar-300"></i>
+        <span id="toast-text" class="text-sm font-medium">Готово!</span>
+    </div>
+
+    <!-- Share Modal Window -->
+    <div id="share-modal" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 hidden opacity-0 transition-opacity duration-200">
+        <div class="bg-white rounded-3xl max-w-lg w-full p-6 md:p-8 shadow-2xl border border-lunar-200 space-y-6 relative">
+            <button onclick="closeShareModal()" class="absolute top-5 right-5 text-lunar-400 hover:text-lunar-800 p-1 rounded-full hover:bg-lunar-100 transition-colors">
+                <i data-lucide="x" class="w-6 h-6"></i>
+            </button>
+
+            <div class="space-y-2">
+                <div class="w-12 h-12 rounded-2xl bg-amber-100 text-amber-900 flex items-center justify-center">
+                    <i data-lucide="share-2" class="w-6 h-6"></i>
+                </div>
+                <h3 class="font-serif-title text-2xl font-bold text-lunar-900">
+                    Как отправить карточки клиентам?
+                </h3>
+                <p class="text-xs text-lunar-600 leading-relaxed">
+                    Поскольку вы работаете в приватном редакторе, прямая ссылка из браузера временно недоступна для внешних пользователей. Вот 2 простых способа передать гайд:
+                </p>
+            </div>
+
+            <div class="space-y-3 text-xs md:text-sm text-lunar-800">
+                <div class="p-4 rounded-2xl bg-lunar-50 border border-lunar-200 space-y-1.5">
+                    <div class="font-bold text-lunar-900 flex items-center gap-2">
+                        <span>1. Отправить файл HTML</span>
+                        <span class="bg-emerald-100 text-emerald-800 text-[10px] px-2 py-0.5 rounded font-medium">Самый простой</span>
+                    </div>
+                    <p class="text-lunar-600 text-xs">
+                        Скачайте исходный файл <code class="bg-lunar-200 px-1 py-0.5 rounded text-lunar-900 font-mono">index.html</code> и отправьте его клиенту в Telegram или WhatsApp. Он откроется в браузере телефона без ошибок.
+                    </p>
+                </div>
+
+                <div class="p-4 rounded-2xl bg-lunar-50 border border-lunar-200 space-y-1.5">
+                    <div class="font-bold text-lunar-900">
+                        2. Опубликовать как онлайн-ссылку
+                    </div>
+                    <p class="text-lunar-600 text-xs">
+                        Загрузите файл на бесплатный хостинг (например, <a href="https://app.netlify.com/drop" target="_blank" class="text-lunar-800 underline font-semibold">Netlify Drop</a>) за 30 секунд, и у вас появится вечная ссылка для соцсетей!
+                    </p>
+                </div>
+            </div>
+
+            <div class="pt-2 flex justify-end">
+                <button onclick="closeShareModal()" class="w-full bg-lunar-900 hover:bg-lunar-800 text-white py-3 rounded-xl text-sm font-semibold transition-colors">
+                    Понятно
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Header & Navigation Bar -->
+    <header class="no-print sticky top-0 z-40 bg-lunar-50/95 backdrop-blur-md border-b border-lunar-200">
+        <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-full bg-lunar-900 text-lunar-100 flex items-center justify-center font-serif font-bold text-lg shadow-sm">
+                    🌘
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h1 class="font-serif-title font-semibold text-lg md:text-xl text-lunar-900 leading-tight">
+                            Дом как место силы
+                        </h1>
+                        <span id="save-badge" class="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md font-medium opacity-0 transition-opacity">
+                            Сохранено
+                        </span>
+                    </div>
+                    <p class="text-xs text-lunar-600 hidden sm:block">
+                        Практика очищения на убывающую Луну
+                    </p>
+                </div>
+            </div>
+
+            <!-- View Toggles & Actions -->
+            <div class="flex items-center gap-2">
+                <!-- Share Button for Clients -->
+                <button onclick="openShareModal()" class="bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm" title="Инструкция по отправке клиентам">
+                    <i data-lucide="share-2" class="w-3.5 h-3.5"></i>
+                    <span>Поделиться</span>
+                </button>
+
+                <!-- Mode Switcher -->
+                <div class="bg-lunar-100 p-1 rounded-xl border border-lunar-200 flex items-center text-xs font-medium">
+                    <button id="btn-mode-cards" onclick="setMode('cards')" class="px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 bg-white text-lunar-900 shadow-sm">
+                        <i data-lucide="layers" class="w-3.5 h-3.5"></i>
+                        <span class="hidden md:inline">Карточки</span>
+                    </button>
+                    <button id="btn-mode-pdf" onclick="setMode('pdf')" class="px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 text-lunar-600 hover:text-lunar-900">
+                        <i data-lucide="file-text" class="w-3.5 h-3.5"></i>
+                        <span>Чек-лист / PDF</span>
+                    </button>
+                </div>
+
+                <!-- Print / Save Button -->
+                <button onclick="triggerPrint()" class="bg-lunar-900 hover:bg-lunar-800 text-white px-3.5 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-colors shadow-md">
+                    <i data-lucide="printer" class="w-3.5 h-3.5"></i>
+                    <span class="hidden sm:inline">Печать / PDF</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN CONTAINER -->
+    <main class="flex-grow max-w-5xl w-full mx-auto px-4 py-6 md:py-10">
+
+        <!-- Top Banner Info -->
+        <div class="no-print mb-6 p-4 rounded-2xl bg-lunar-100/80 border border-lunar-200 text-xs md:text-sm text-lunar-800 flex items-start sm:items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-full bg-lunar-200 flex items-center justify-center shrink-0 text-lunar-700">
+                    <i data-lucide="sparkles" class="w-4 h-4"></i>
+                </div>
+                <div>
+                    <strong>Интерактивная практика с автосохранением.</strong> Заполняйте чек-боксы и ответы — они автоматически сохраняются в вашем профиле.
+                </div>
+            </div>
+            <button onclick="clearAnswers()" class="shrink-0 text-lunar-600 hover:text-red-700 text-xs underline flex items-center gap-1">
+                <i data-lucide="rotate-ccw" class="w-3 h-3"></i> Сбросить ответы
+            </button>
+        </div>
+
+        <!-- ================================================================= -->
+        <!-- MODE 1: INTERACTIVE CARDS (SLIDESHOW)                             -->
+        <!-- ================================================================= -->
+        <div id="interactive-container" class="interactive-mode space-y-6">
+
+            <!-- Progress Bar -->
+            <div class="bg-white p-4 rounded-2xl border border-lunar-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+                <div class="flex items-center gap-3 w-full md:w-auto">
+                    <span class="text-xs font-bold uppercase tracking-wider text-lunar-600 bg-lunar-100 px-2.5 py-1 rounded-lg">
+                        Слайд <span id="current-slide-num">1</span> из 5
+                    </span>
+                    <h2 id="slide-title-header" class="font-serif-title font-bold text-lg text-lunar-900 truncate">
+                        Диагностика пространства
+                    </h2>
+                </div>
+
+                <!-- Step dots -->
+                <div class="flex items-center gap-2 w-full md:w-auto justify-between md:justify-end">
+                    <div class="flex gap-1.5" id="slide-dots">
+                        <button onclick="goToSlide(0)" class="w-3 h-3 rounded-full bg-lunar-700 transition-all" title="Страница 1"></button>
+                        <button onclick="goToSlide(1)" class="w-3 h-3 rounded-full bg-lunar-200 transition-all" title="Страница 2"></button>
+                        <button onclick="goToSlide(2)" class="w-3 h-3 rounded-full bg-lunar-200 transition-all" title="Страница 3"></button>
+                        <button onclick="goToSlide(3)" class="w-3 h-3 rounded-full bg-lunar-200 transition-all" title="Страница 4"></button>
+                        <button onclick="goToSlide(4)" class="w-3 h-3 rounded-full bg-lunar-200 transition-all" title="Страница 5"></button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Slide Viewport (Touch Swipe Area) -->
+            <div id="swipe-area" class="relative overflow-hidden min-h-[550px] bg-white rounded-3xl border border-lunar-200 shadow-xl p-6 md:p-10 transition-all">
+
+                <!-- SLIDE 1 -->
+                <div class="slide-content transition-opacity duration-300 space-y-8" data-slide="0">
+                    <div class="grid grid-cols-1 md:grid-cols-12 gap-8 items-center">
+                        <div class="md:col-span-7 space-y-4">
+                            <div class="inline-flex items-center gap-2 bg-lunar-100 text-lunar-800 text-xs font-semibold px-3 py-1 rounded-full">
+                                <i data-lucide="moon" class="w-3.5 h-3.5 text-lunar-600"></i>
+                                Практика на убывающую Луну
+                            </div>
+                            <h2 class="font-serif-title text-3xl md:text-4xl font-bold text-lunar-900 leading-tight">
+                                ДОМ КАК МЕСТО СИЛЫ
+                            </h2>
+                            <p class="text-sm md:text-base text-lunar-700 leading-relaxed bg-lunar-50 p-4 rounded-2xl border border-lunar-100">
+                                Сейчас период, когда особенно хорошо отпускать лишнее, завершать старое, очищать пространство и возвращать себе внутреннюю опору.
+                            </p>
+                        </div>
+                        <div class="md:col-span-5">
+                            <div class="relative rounded-2xl overflow-hidden shadow-lg h-48 md:h-64 bg-lunar-200">
+                                <img src="https://images.unsplash.com/photo-1513694203232-719a280e022f?q=80&w=800&auto=format&fit=crop" 
+                                     alt="Уютный дом" 
+                                     class="w-full h-full object-cover">
+                                <div class="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent"></div>
+                                <span class="absolute bottom-3 left-3 text-white text-xs font-light tracking-wide bg-black/30 backdrop-blur-md px-2.5 py-1 rounded-md">
+                                    Очищение & Гармония
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr class="border-lunar-100">
+
+                    <!-- Diagnostic Questions -->
+                    <div class="space-y-4">
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="sparkles" class="w-5 h-5 text-lunar-600"></i>
+                            <h3 class="font-serif-title text-xl font-bold text-lunar-900">
+                                Ответьте честно: Как я сейчас чувствую себя дома?
+                            </h3>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <label class="flex items-center gap-3 p-3 rounded-xl border border-lunar-100 bg-lunar-50/50 hover:bg-lunar-100/50 transition-colors cursor-pointer text-sm">
+                                <input type="checkbox" id="s1_chk_1" class="custom-checkbox">
+                                <span>спокойно</span>
+                            </label>
+                            <label class="flex items-center gap-3 p-3 rounded-xl border border-lunar-100 bg-lunar-50/50 hover:bg-lunar-100/50 transition-colors cursor-pointer text-sm">
+                                <input type="checkbox" id="s1_chk_2" class="custom-checkbox">
+                                <span>тревожно</span>
+                            </label>
+                            <label class="flex items-center gap-3 p-3 rounded-xl border border-lunar-100 bg-lunar-50/50 hover:bg-lunar-100/50 transition-colors cursor-pointer text-sm">
+                                <input type="checkbox" id="s1_chk_3" class="custom-checkbox">
+                                <span>тяжело</span>
+                            </label>
+                            <label class="flex items-center gap-3 p-3 rounded-xl border border-lunar-100 bg-lunar-50/50 hover:bg-lunar-100/50 transition-colors cursor-pointer text-sm">
+                                <input type="checkbox" id="s1_chk_4" class="custom-checkbox">
+                                <span>устало</span>
+                            </label>
+                            <label class="flex items-center gap-3 p-3 rounded-xl border border-lunar-100 bg-lunar-50/50 hover:bg-lunar-100/50 transition-colors cursor-pointer text-sm">
+                                <input type="checkbox" id="s1_chk_5" class="custom-checkbox">
+                                <span>безопасно</span>
+                            </label>
+                            <label class="flex items-center gap-3 p-3 rounded-xl border border-lunar-100 bg-lunar-50/50 hover:bg-lunar-100/50 transition-colors cursor-pointer text-sm">
+                                <input type="checkbox" id="s1_chk_6" class="custom-checkbox">
+                                <span>раздраженно</span>
+                            </label>
+                            <label class="flex items-center gap-3 p-3 rounded-xl border border-lunar-100 bg-lunar-50/50 hover:bg-lunar-100/50 transition-colors cursor-pointer text-sm">
+                                <input type="checkbox" id="s1_chk_7" class="custom-checkbox">
+                                <span>вдохновленно</span>
+                            </label>
+                            <label class="flex items-center gap-3 p-3 rounded-xl border border-lunar-100 bg-lunar-50/50 hover:bg-lunar-100/50 transition-colors cursor-pointer text-sm">
+                                <input type="checkbox" id="s1_chk_8" class="custom-checkbox">
+                                <span>хочется перемен</span>
+                            </label>
+                            <label class="flex items-center gap-3 p-3 rounded-xl border border-lunar-100 bg-lunar-50/50 hover:bg-lunar-100/50 transition-colors cursor-pointer text-sm">
+                                <input type="checkbox" id="s1_chk_9" class="custom-checkbox">
+                                <span>я не восстанавливаюсь дома</span>
+                            </label>
+                            <label class="flex items-center gap-3 p-3 rounded-xl border border-lunar-100 bg-lunar-50/50 hover:bg-lunar-100/50 transition-colors cursor-pointer text-sm">
+                                <input type="checkbox" id="s1_chk_10" class="custom-checkbox">
+                                <span>мне хорошо в своем пространстве</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Input One Word -->
+                    <div class="pt-2">
+                        <label class="block text-sm font-semibold text-lunar-800 mb-2">
+                            Одно слово про мой дом сейчас:
+                        </label>
+                        <input type="text" 
+                               id="s1_txt_oneword"
+                               placeholder="Например: Укрытие, Хаос, Уют, Перекресток..." 
+                               class="w-full px-4 py-3 rounded-xl border border-lunar-300 focus:ring-2 focus:ring-lunar-500 focus:outline-none bg-white text-lunar-900 placeholder-lunar-400">
+                    </div>
+                </div>
+
+                <!-- SLIDE 2 -->
+                <div class="slide-content transition-opacity duration-300 hidden space-y-6" data-slide="1">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <div>
+                            <span class="text-xs font-bold uppercase tracking-widest text-lunar-600">Анализ утечек</span>
+                            <h2 class="font-serif-title text-3xl font-bold text-lunar-900 mt-1">
+                                ГДЕ УТЕКАЕТ МОЯ ЭНЕРГИЯ?
+                            </h2>
+                        </div>
+                        <div class="text-sm text-lunar-600 italic bg-lunar-100/80 px-3 py-1.5 rounded-lg border border-lunar-200">
+                            Отметьте все пункты, которые откликаются
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+                        <div class="md:col-span-8 space-y-2.5">
+                            <label class="flex items-start gap-3 p-3.5 rounded-xl border border-lunar-200 bg-white hover:bg-lunar-50 transition-colors cursor-pointer text-sm leading-snug">
+                                <input type="checkbox" id="s2_chk_1" class="custom-checkbox mt-0.5">
+                                <span>Дома есть место, на которое неприятно смотреть.</span>
+                            </label>
+                            <label class="flex items-start gap-3 p-3.5 rounded-xl border border-lunar-200 bg-white hover:bg-lunar-50 transition-colors cursor-pointer text-sm leading-snug">
+                                <input type="checkbox" id="s2_chk_2" class="custom-checkbox mt-0.5">
+                                <span>Есть вещи, которые давно пора убрать или отпустить.</span>
+                            </label>
+                            <label class="flex items-start gap-3 p-3.5 rounded-xl border border-lunar-200 bg-white hover:bg-lunar-50 transition-colors cursor-pointer text-sm leading-snug">
+                                <input type="checkbox" id="s2_chk_3" class="custom-checkbox mt-0.5">
+                                <span>Есть предметы, связанные с прошлым, болью или тяжелыми воспоминаниями.</span>
+                            </label>
+                            <label class="flex items-start gap-3 p-3.5 rounded-xl border border-lunar-200 bg-white hover:bg-lunar-50 transition-colors cursor-pointer text-sm leading-snug">
+                                <input type="checkbox" id="s2_chk_4" class="custom-checkbox mt-0.5">
+                                <span>Я часто раздражаюсь дома.</span>
+                            </label>
+                            <label class="flex items-start gap-3 p-3.5 rounded-xl border border-lunar-200 bg-white hover:bg-lunar-50 transition-colors cursor-pointer text-sm leading-snug">
+                                <input type="checkbox" id="s2_chk_5" class="custom-checkbox mt-0.5">
+                                <span>Мне сложно расслабиться в своем пространстве.</span>
+                            </label>
+                            <label class="flex items-start gap-3 p-3.5 rounded-xl border border-lunar-200 bg-white hover:bg-lunar-50 transition-colors cursor-pointer text-sm leading-snug">
+                                <input type="checkbox" id="s2_chk_6" class="custom-checkbox mt-0.5">
+                                <span>Есть незавершенный разговор, который тянет энергию.</span>
+                            </label>
+                            <label class="flex items-start gap-3 p-3.5 rounded-xl border border-lunar-200 bg-white hover:bg-lunar-50 transition-colors cursor-pointer text-sm leading-snug">
+                                <input type="checkbox" id="s2_chk_7" class="custom-checkbox mt-0.5">
+                                <span>После общения с некоторыми людьми мне становится тяжелее.</span>
+                            </label>
+                            <label class="flex items-start gap-3 p-3.5 rounded-xl border border-lunar-200 bg-white hover:bg-lunar-50 transition-colors cursor-pointer text-sm leading-snug">
+                                <input type="checkbox" id="s2_chk_8" class="custom-checkbox mt-0.5">
+                                <span>Я часто трачу деньги из тревоги или усталости.</span>
+                            </label>
+                            <label class="flex items-start gap-3 p-3.5 rounded-xl border border-lunar-200 bg-white hover:bg-lunar-50 transition-colors cursor-pointer text-sm leading-snug">
+                                <input type="checkbox" id="s2_chk_9" class="custom-checkbox mt-0.5">
+                                <span>Я чувствую, что все держится на мне.</span>
+                            </label>
+                            <label class="flex items-start gap-3 p-3.5 rounded-xl border border-lunar-200 bg-white hover:bg-lunar-50 transition-colors cursor-pointer text-sm leading-snug">
+                                <input type="checkbox" id="s2_chk_10" class="custom-checkbox mt-0.5">
+                                <span>В доме мало ощущения легкости, чистоты и поддержки.</span>
+                            </label>
+                        </div>
+
+                        <div class="md:col-span-4 space-y-4">
+                            <div class="rounded-2xl overflow-hidden shadow-md h-48 md:h-56 bg-lunar-200">
+                                <img src="https://images.unsplash.com/photo-1505691938895-1758d7FEB511?q=80&w=800&auto=format&fit=crop" 
+                                     alt="Минимализм и покой" 
+                                     class="w-full h-full object-cover">
+                            </div>
+
+                            <div class="bg-amber-50/70 p-4 rounded-2xl border border-amber-200/60">
+                                <label class="block text-xs font-bold uppercase tracking-wider text-amber-900 mb-1.5">
+                                    Моя главная утечка сейчас:
+                                </label>
+                                <textarea id="s2_txt_leak" rows="3" 
+                                          placeholder="Опишите главное, что забирает ресурс..." 
+                                          class="w-full p-2.5 rounded-xl border border-amber-300 focus:ring-2 focus:ring-amber-500 focus:outline-none bg-white/90 text-sm text-lunar-900"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SLIDE 3 -->
+                <div class="slide-content transition-opacity duration-300 hidden space-y-6" data-slide="2">
+                    <div>
+                        <span class="text-xs font-bold uppercase tracking-widest text-lunar-600">Практика 1</span>
+                        <h2 class="font-serif-title text-3xl font-bold text-lunar-900 mt-1">
+                            «ОДНА ТОЧКА ОЧИЩЕНИЯ»
+                        </h2>
+                        <p class="text-sm text-lunar-700 mt-1">
+                            Не нужно убирать весь дом. Выберите только <strong>одну маленькую зону</strong> для сегодняшней практики.
+                        </p>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Left: Zone selection -->
+                        <div class="space-y-3">
+                            <h3 class="text-xs font-bold uppercase text-lunar-800 tracking-wider">
+                                1. Выберите зону:
+                            </h3>
+                            <div class="grid grid-cols-2 gap-2 text-sm">
+                                <label class="flex items-center gap-2 p-2.5 rounded-xl border border-lunar-200 bg-lunar-50/50 hover:bg-lunar-100 transition-colors cursor-pointer">
+                                    <input type="checkbox" id="s3_zone_1" class="custom-checkbox">
+                                    <span>тумбочка</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2.5 rounded-xl border border-lunar-200 bg-lunar-50/50 hover:bg-lunar-100 transition-colors cursor-pointer">
+                                    <input type="checkbox" id="s3_zone_2" class="custom-checkbox">
+                                    <span>сумка</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2.5 rounded-xl border border-lunar-200 bg-lunar-50/50 hover:bg-lunar-100 transition-colors cursor-pointer">
+                                    <input type="checkbox" id="s3_zone_3" class="custom-checkbox">
+                                    <span>кошелек</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2.5 rounded-xl border border-lunar-200 bg-lunar-50/50 hover:bg-lunar-100 transition-colors cursor-pointer">
+                                    <input type="checkbox" id="s3_zone_4" class="custom-checkbox">
+                                    <span>рабочий стол</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2.5 rounded-xl border border-lunar-200 bg-lunar-50/50 hover:bg-lunar-100 transition-colors cursor-pointer">
+                                    <input type="checkbox" id="s3_zone_5" class="custom-checkbox">
+                                    <span>полка</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2.5 rounded-xl border border-lunar-200 bg-lunar-50/50 hover:bg-lunar-100 transition-colors cursor-pointer">
+                                    <input type="checkbox" id="s3_zone_6" class="custom-checkbox">
+                                    <span>ящик</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2.5 rounded-xl border border-lunar-200 bg-lunar-50/50 hover:bg-lunar-100 transition-colors cursor-pointer">
+                                    <input type="checkbox" id="s3_zone_7" class="custom-checkbox">
+                                    <span>телефон / галерея</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2.5 rounded-xl border border-lunar-200 bg-lunar-50/50 hover:bg-lunar-100 transition-colors cursor-pointer">
+                                    <input type="checkbox" id="s3_zone_8" class="custom-checkbox">
+                                    <span>косметичка</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2.5 rounded-xl border border-lunar-200 bg-lunar-50/50 hover:bg-lunar-100 transition-colors cursor-pointer">
+                                    <input type="checkbox" id="s3_zone_9" class="custom-checkbox">
+                                    <span>входная зона</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2.5 rounded-xl border border-lunar-200 bg-lunar-50/50 hover:bg-lunar-100 transition-colors cursor-pointer">
+                                    <input type="checkbox" id="s3_zone_10" class="custom-checkbox">
+                                    <span>неприятное место</span>
+                                </label>
+                            </div>
+
+                            <div class="pt-2">
+                                <label class="block text-xs font-semibold text-lunar-800 mb-1">
+                                    Моя зона очищения сегодня:
+                                </label>
+                                <input type="text" id="s3_txt_selected_zone" placeholder="Укажите выбранную зону..." class="w-full p-2.5 rounded-xl border border-lunar-300 focus:ring-2 focus:ring-lunar-500 text-sm">
+                            </div>
+                        </div>
+
+                        <!-- Right: What do I release -->
+                        <div class="space-y-3">
+                            <h3 class="text-xs font-bold uppercase text-lunar-800 tracking-wider">
+                                2. Что я отпускаю через эту зону?
+                            </h3>
+                            <div class="grid grid-cols-2 gap-2 text-sm">
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-white border border-lunar-100 hover:bg-lunar-50 transition-colors cursor-pointer">
+                                    <input type="checkbox" id="s3_rel_1" class="custom-checkbox">
+                                    <span>хаос</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-white border border-lunar-100 hover:bg-lunar-50 transition-colors cursor-pointer">
+                                    <input type="checkbox" id="s3_rel_2" class="custom-checkbox">
+                                    <span>тревогу</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-white border border-lunar-100 hover:bg-lunar-50 transition-colors cursor-pointer">
+                                    <input type="checkbox" id="s3_rel_3" class="custom-checkbox">
+                                    <span>старую обиду</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-white border border-lunar-100 hover:bg-lunar-50 transition-colors cursor-pointer">
+                                    <input type="checkbox" id="s3_rel_4" class="custom-checkbox">
+                                    <span>усталость</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-white border border-lunar-100 hover:bg-lunar-50 transition-colors cursor-pointer">
+                                    <input type="checkbox" id="s3_rel_5" class="custom-checkbox">
+                                    <span>страх перемен</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-white border border-lunar-100 hover:bg-lunar-50 transition-colors cursor-pointer">
+                                    <input type="checkbox" id="s3_rel_6" class="custom-checkbox">
+                                    <span>чувство «все на мне»</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-white border border-lunar-100 hover:bg-lunar-50 transition-colors cursor-pointer">
+                                    <input type="checkbox" id="s3_rel_7" class="custom-checkbox">
+                                    <span>прошлое</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-white border border-lunar-100 hover:bg-lunar-50 transition-colors cursor-pointer">
+                                    <input type="checkbox" id="s3_rel_8" class="custom-checkbox">
+                                    <span>ощущение застоя</span>
+                                </label>
+                            </div>
+                            <div class="pt-1">
+                                <input type="text" id="s3_txt_other_rel" placeholder="Другое: впишите свой вариант..." class="w-full p-2.5 rounded-xl border border-lunar-300 focus:ring-2 focus:ring-lunar-500 text-sm">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Highlight Quote Card -->
+                    <div class="bg-gradient-to-r from-lunar-900 to-night-800 text-white p-5 rounded-2xl shadow-lg border border-lunar-700 space-y-2 relative overflow-hidden">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-semibold text-lunar-300 tracking-wider uppercase flex items-center gap-1.5">
+                                <i data-lucide="sparkle" class="w-4 h-4 text-amber-300"></i>
+                                Фраза во время очищения
+                            </span>
+                            <button onclick="copyText('phrase-cleaning')" class="text-xs bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 text-lunar-200">
+                                <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                                Скопировать
+                            </button>
+                        </div>
+                        <p id="phrase-cleaning" class="font-serif-title text-lg md:text-xl italic font-normal leading-relaxed text-lunar-100 pt-1">
+                            «Я освобождаю место для легкости, денег, гармонии и новой энергии. Я отпускаю то, что больше не поддерживает меня.»
+                        </p>
+                    </div>
+                </div>
+
+                <!-- SLIDE 4 -->
+                <div class="slide-content transition-opacity duration-300 hidden space-y-6" data-slide="3">
+                    <div>
+                        <span class="text-xs font-bold uppercase tracking-widest text-lunar-600">Практика 2</span>
+                        <h2 class="font-serif-title text-3xl font-bold text-lunar-900 mt-1">
+                            «ЗАВЕРШИТЬ ВНУТРЕННИЙ КОНФЛИКТ»
+                        </h2>
+                        <p class="text-xs md:text-sm text-lunar-700 mt-1 bg-lunar-100/60 p-3 rounded-xl border border-lunar-200">
+                            Выберите <strong>одну ситуацию</strong>, которая сейчас забирает вашу энергию (ссора, обида, недосказанность, раздражение или внутренний диалог с человеком).
+                        </p>
+                    </div>
+
+                    <div class="space-y-4 text-sm">
+                        <!-- Q1 -->
+                        <div>
+                            <label class="block font-semibold text-lunar-900 mb-1">
+                                1. Ситуация, которая меня цепляет:
+                            </label>
+                            <textarea id="s4_txt_sit" rows="2" placeholder="Опишите кратко суть ситуации..." class="w-full p-3 rounded-xl border border-lunar-300 focus:ring-2 focus:ring-lunar-500 bg-white"></textarea>
+                        </div>
+
+                        <!-- Q2 -->
+                        <div>
+                            <label class="block font-semibold text-lunar-900 mb-2">
+                                2. Что я на самом деле чувствую?
+                            </label>
+                            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-lunar-50 border border-lunar-200 cursor-pointer">
+                                    <input type="checkbox" id="s4_feel_1" class="custom-checkbox">
+                                    <span>обиду</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-lunar-50 border border-lunar-200 cursor-pointer">
+                                    <input type="checkbox" id="s4_feel_2" class="custom-checkbox">
+                                    <span>злость</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-lunar-50 border border-lunar-200 cursor-pointer">
+                                    <input type="checkbox" id="s4_feel_3" class="custom-checkbox">
+                                    <span>усталость</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-lunar-50 border border-lunar-200 cursor-pointer">
+                                    <input type="checkbox" id="s4_feel_4" class="custom-checkbox">
+                                    <span>боль</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-lunar-50 border border-lunar-200 cursor-pointer">
+                                    <input type="checkbox" id="s4_feel_5" class="custom-checkbox">
+                                    <span>одиночество</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-lunar-50 border border-lunar-200 cursor-pointer">
+                                    <input type="checkbox" id="s4_feel_6" class="custom-checkbox">
+                                    <span>несправедливость</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-lunar-50 border border-lunar-200 cursor-pointer">
+                                    <input type="checkbox" id="s4_feel_7" class="custom-checkbox">
+                                    <span>страх</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-lunar-50 border border-lunar-200 cursor-pointer">
+                                    <input type="checkbox" id="s4_feel_8" class="custom-checkbox">
+                                    <span>разочарование</span>
+                                </label>
+                            </div>
+                            <input type="text" id="s4_txt_other_feel" placeholder="Другое чувство..." class="w-full mt-2 p-2 rounded-xl border border-lunar-200 text-xs">
+                        </div>
+
+                        <!-- Q3 -->
+                        <div>
+                            <label class="block font-semibold text-lunar-900 mb-1">
+                                3. Что я хотела бы сказать, но не сказала?
+                            </label>
+                            <textarea id="s4_txt_unsaid" rows="2" placeholder="Выскажите всё на бумаге..." class="w-full p-3 rounded-xl border border-lunar-300 focus:ring-2 focus:ring-lunar-500 bg-white"></textarea>
+                        </div>
+
+                        <!-- Q4 -->
+                        <div>
+                            <label class="block font-semibold text-lunar-900 mb-2">
+                                4. Что мне важно вернуть себе из этой ситуации?
+                            </label>
+                            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-lunar-50 border border-lunar-200 cursor-pointer">
+                                    <input type="checkbox" id="s4_ret_1" class="custom-checkbox">
+                                    <span>спокойствие</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-lunar-50 border border-lunar-200 cursor-pointer">
+                                    <input type="checkbox" id="s4_ret_2" class="custom-checkbox">
+                                    <span>достоинство</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-lunar-50 border border-lunar-200 cursor-pointer">
+                                    <input type="checkbox" id="s4_ret_3" class="custom-checkbox">
+                                    <span>границы</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-lunar-50 border border-lunar-200 cursor-pointer">
+                                    <input type="checkbox" id="s4_ret_4" class="custom-checkbox">
+                                    <span>энергию</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-lunar-50 border border-lunar-200 cursor-pointer">
+                                    <input type="checkbox" id="s4_ret_5" class="custom-checkbox">
+                                    <span>быть услышанной</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-lunar-50 border border-lunar-200 cursor-pointer">
+                                    <input type="checkbox" id="s4_ret_6" class="custom-checkbox">
+                                    <span>выбрать себя</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-lunar-50 border border-lunar-200 cursor-pointer">
+                                    <input type="checkbox" id="s4_ret_7" class="custom-checkbox">
+                                    <span>не доказывать</span>
+                                </label>
+                                <label class="flex items-center gap-2 p-2 rounded-lg bg-lunar-50 border border-lunar-200 cursor-pointer">
+                                    <input type="checkbox" id="s4_ret_8" class="custom-checkbox">
+                                    <span>отпустить</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Highlight Quote Card -->
+                    <div class="bg-gradient-to-r from-sage-500 to-lunar-700 text-white p-5 rounded-2xl shadow-lg border border-sage-500 space-y-2 relative">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-semibold text-sage-100 tracking-wider uppercase flex items-center gap-1.5">
+                                <i data-lucide="shield-check" class="w-4 h-4 text-emerald-200"></i>
+                                Фраза завершения
+                            </span>
+                            <button onclick="copyText('phrase-conflict')" class="text-xs bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 text-white">
+                                <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                                Скопировать
+                            </button>
+                        </div>
+                        <p id="phrase-conflict" class="font-serif-title text-lg md:text-xl italic font-normal leading-relaxed text-white pt-1">
+                            «Я возвращаю свою энергию из этой ситуации. Я выбираю не носить это внутри. Я оставляю себе опыт, но отпускаю тяжесть.»
+                        </p>
+                    </div>
+                </div>
+
+                <!-- SLIDE 5 -->
+                <div class="slide-content transition-opacity duration-300 hidden space-y-6" data-slide="4">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <div>
+                            <span class="text-xs font-bold uppercase tracking-widest text-lunar-600">Заключительное намерение</span>
+                            <h2 class="font-serif-title text-3xl font-bold text-lunar-900 mt-1">
+                                МОЕ НАМЕРЕНИЕ НА УБЫВАЮЩУЮ ЛУНУ
+                            </h2>
+                        </div>
+                        <div class="bg-amber-100/80 text-amber-900 text-xs px-3 py-1.5 rounded-xl border border-amber-300 font-medium">
+                            🗓️ Период практики: До 12 августа
+                        </div>
+                    </div>
+
+                    <p class="text-sm text-lunar-800 italic bg-lunar-100/50 p-3.5 rounded-2xl border border-lunar-200">
+                        «До 12 августа я выбираю мягко освобождаться от того, что больше не поддерживает меня.»
+                    </p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="space-y-1">
+                            <label class="block text-xs font-bold text-lunar-800 uppercase tracking-wider">
+                                1. Я отпускаю:
+                            </label>
+                            <textarea id="s5_txt_release" rows="3" placeholder="Что уходит из вашей жизни..." class="w-full p-3 rounded-xl border border-lunar-300 focus:ring-2 focus:ring-lunar-500 bg-white text-sm"></textarea>
+                        </div>
+
+                        <div class="space-y-1">
+                            <label class="block text-xs font-bold text-lunar-800 uppercase tracking-wider">
+                                2. Я возвращаю себе:
+                            </label>
+                            <textarea id="s5_txt_return" rows="3" placeholder="Какое состояние и энергию забираете назад..." class="w-full p-3 rounded-xl border border-lunar-300 focus:ring-2 focus:ring-lunar-500 bg-white text-sm"></textarea>
+                        </div>
+
+                        <div class="space-y-1">
+                            <label class="block text-xs font-bold text-lunar-800 uppercase tracking-wider">
+                                3. Я хочу, чтобы мой дом стал пространством:
+                            </label>
+                            <textarea id="s5_txt_space" rows="3" placeholder="Опишите желаемую атмосферу дома..." class="w-full p-3 rounded-xl border border-lunar-300 focus:ring-2 focus:ring-lunar-500 bg-white text-sm"></textarea>
+                        </div>
+
+                        <div class="space-y-1">
+                            <label class="block text-xs font-bold text-lunar-800 uppercase tracking-wider">
+                                4. Мое маленькое действие на сегодня:
+                            </label>
+                            <textarea id="s5_txt_action" rows="3" placeholder="Одно конкретное физическое или ментальное действие..." class="w-full p-3 rounded-xl border border-lunar-300 focus:ring-2 focus:ring-lunar-500 bg-white text-sm"></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Highlight Main Affirmation Card -->
+                    <div class="bg-lunar-900 text-white p-6 rounded-3xl shadow-xl border border-lunar-800 space-y-3 relative overflow-hidden">
+                        <div class="absolute -right-6 -bottom-6 opacity-10 text-9xl font-serif">
+                            🌙
+                        </div>
+                        <div class="flex items-center justify-between relative z-10">
+                            <span class="text-xs font-bold text-amber-300 tracking-widest uppercase flex items-center gap-1.5">
+                                <i data-lucide="sun" class="w-4 h-4 text-amber-300"></i>
+                                Моя главная фраза силы
+                            </span>
+                            <button onclick="copyText('phrase-main')" class="text-xs bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 text-lunar-200">
+                                <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                                Скопировать
+                            </button>
+                        </div>
+                        <p id="phrase-main" class="font-serif-title text-xl md:text-2xl italic leading-relaxed text-lunar-100 relative z-10">
+                            «Мой дом поддерживает меня. Мое пространство очищается. Моя энергия возвращается ко мне. Я выбираю легкость, гармонию и внутреннюю опору.»
+                        </p>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Slide Navigation Buttons -->
+            <div class="flex items-center justify-between gap-4">
+                <button id="btn-prev" onclick="changeSlide(-1)" class="px-5 py-3 rounded-2xl bg-white border border-lunar-200 text-lunar-800 font-medium text-sm hover:bg-lunar-100 transition-colors flex items-center gap-2 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
+                    <i data-lucide="arrow-left" class="w-4 h-4"></i>
+                    <span>Назад</span>
+                </button>
+
+                <div class="text-xs text-lunar-500 hidden sm:block">
+                    Используйте стрелки клавиатуры или свайп на телефоне
+                </div>
+
+                <button id="btn-next" onclick="changeSlide(1)" class="px-6 py-3 rounded-2xl bg-lunar-900 text-white font-medium text-sm hover:bg-lunar-800 transition-colors flex items-center gap-2 shadow-md">
+                    <span id="btn-next-text">Далее</span>
+                    <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+        </div>
+
+
+        <!-- ================================================================= -->
+        <!-- MODE 2: PRINTABLE 5-PAGE PDF VIEW                                 -->
+        <!-- ================================================================= -->
+        <div id="pdf-container" class="pdf-mode hidden space-y-12">
+
+            <!-- PAGE 1 -->
+            <div class="pdf-page bg-white p-8 md:p-12 rounded-3xl border border-lunar-200 shadow-md space-y-8">
+                <div class="flex justify-between items-center border-b border-lunar-200 pb-4">
+                    <div class="flex items-center gap-2 text-lunar-700 text-xs uppercase tracking-widest font-semibold">
+                        <span>Практика на убывающую Луну</span>
+                        <span>•</span>
+                        <span>Страница 1</span>
+                    </div>
+                    <div class="text-xs font-serif text-lunar-500">Дом как место силы</div>
+                </div>
+
+                <div class="text-center space-y-3 py-4">
+                    <h1 class="font-serif-title text-4xl font-bold text-lunar-900 tracking-tight">
+                        ДОМ КАК МЕСТО СИЛЫ
+                    </h1>
+                    <p class="text-lg font-serif italic text-lunar-600">
+                        Практика очищения на убывающую Луну
+                    </p>
+                    <p class="text-sm text-lunar-700 max-w-xl mx-auto pt-2">
+                        Сейчас период, когда особенно хорошо отпускать лишнее, завершать старое, очищать пространство и возвращать себе внутреннюю опору.
+                    </p>
+                </div>
+
+                <div class="space-y-4">
+                    <h3 class="font-serif-title text-xl font-bold text-lunar-900 border-b border-lunar-100 pb-2">
+                        Ответьте честно: Как я сейчас чувствую себя дома?
+                    </h3>
+                    <div class="grid grid-cols-2 gap-3 text-sm">
+                        <div class="flex items-center gap-2 p-2 border border-lunar-200 rounded-lg">☐ спокойно</div>
+                        <div class="flex items-center gap-2 p-2 border border-lunar-200 rounded-lg">☐ тревожно</div>
+                        <div class="flex items-center gap-2 p-2 border border-lunar-200 rounded-lg">☐ тяжело</div>
+                        <div class="flex items-center gap-2 p-2 border border-lunar-200 rounded-lg">☐ устало</div>
+                        <div class="flex items-center gap-2 p-2 border border-lunar-200 rounded-lg">☐ безопасно</div>
+                        <div class="flex items-center gap-2 p-2 border border-lunar-200 rounded-lg">☐ раздраженно</div>
+                        <div class="flex items-center gap-2 p-2 border border-lunar-200 rounded-lg">☐ вдохновленно</div>
+                        <div class="flex items-center gap-2 p-2 border border-lunar-200 rounded-lg">☐ хочется перемен</div>
+                        <div class="flex items-center gap-2 p-2 border border-lunar-200 rounded-lg">☐ не восстанавливаюсь</div>
+                        <div class="flex items-center gap-2 p-2 border border-lunar-200 rounded-lg">☐ мне хорошо дома</div>
+                    </div>
+                </div>
+
+                <div class="pt-4 border-t border-lunar-200">
+                    <label class="block text-sm font-bold text-lunar-900 mb-2">
+                        Одно слово про мой дом сейчас:
+                    </label>
+                    <div class="border-b-2 border-dashed border-lunar-300 py-3 text-lunar-800 text-sm italic">
+                        ____________________________________________________________________________________
+                    </div>
+                </div>
+            </div>
+
+            <!-- PAGE 2 -->
+            <div class="pdf-page bg-white p-8 md:p-12 rounded-3xl border border-lunar-200 shadow-md space-y-8">
+                <div class="flex justify-between items-center border-b border-lunar-200 pb-4">
+                    <div class="flex items-center gap-2 text-lunar-700 text-xs uppercase tracking-widest font-semibold">
+                        <span>Диагностика ресурса</span>
+                        <span>•</span>
+                        <span>Страница 2</span>
+                    </div>
+                    <div class="text-xs font-serif text-lunar-500">Дом как место силы</div>
+                </div>
+
+                <div class="space-y-2">
+                    <h2 class="font-serif-title text-3xl font-bold text-lunar-900">
+                        ГДЕ УТЕКАЕТ МОЯ ЭНЕРГИЯ?
+                    </h2>
+                    <p class="text-xs text-lunar-600">Отметьте галочкой все пункты, которые откликаются:</p>
+                </div>
+
+                <div class="space-y-2.5 text-sm">
+                    <div class="p-2.5 border border-lunar-200 rounded-lg">☐ Дома есть место, на которое неприятно смотреть.</div>
+                    <div class="p-2.5 border border-lunar-200 rounded-lg">☐ Есть вещи, которые давно пора убрать или отпустить.</div>
+                    <div class="p-2.5 border border-lunar-200 rounded-lg">☐ Есть предметы, связанные с прошлым, болью или тяжелыми воспоминаниями.</div>
+                    <div class="p-2.5 border border-lunar-200 rounded-lg">☐ Я часто раздражаюсь дома.</div>
+                    <div class="p-2.5 border border-lunar-200 rounded-lg">☐ Мне сложно расслабиться в своем пространстве.</div>
+                    <div class="p-2.5 border border-lunar-200 rounded-lg">☐ Есть незавершенный разговор, который тянет энергию.</div>
+                    <div class="p-2.5 border border-lunar-200 rounded-lg">☐ После общения с некоторыми людьми мне становится тяжелее.</div>
+                    <div class="p-2.5 border border-lunar-200 rounded-lg">☐ Я часто трачу деньги из тревоги или усталости.</div>
+                    <div class="p-2.5 border border-lunar-200 rounded-lg">☐ Я чувствую, что все держится на мне.</div>
+                    <div class="p-2.5 border border-lunar-200 rounded-lg">☐ В доме мало ощущения легкости, чистоты и поддержки.</div>
+                </div>
+
+                <div class="pt-4 border-t border-lunar-200">
+                    <label class="block text-sm font-bold text-lunar-900 mb-2">
+                        Моя главная утечка сейчас:
+                    </label>
+                    <div class="border-b-2 border-dashed border-lunar-300 py-4 text-lunar-800 text-sm">
+                        ____________________________________________________________________________________
+                    </div>
+                </div>
+            </div>
+
+            <!-- PAGE 3 -->
+            <div class="pdf-page bg-white p-8 md:p-12 rounded-3xl border border-lunar-200 shadow-md space-y-8">
+                <div class="flex justify-between items-center border-b border-lunar-200 pb-4">
+                    <div class="flex items-center gap-2 text-lunar-700 text-xs uppercase tracking-widest font-semibold">
+                        <span>Практика очищения</span>
+                        <span>•</span>
+                        <span>Страница 3</span>
+                    </div>
+                    <div class="text-xs font-serif text-lunar-500">Дом как место силы</div>
+                </div>
+
+                <div class="space-y-2">
+                    <h2 class="font-serif-title text-3xl font-bold text-lunar-900">
+                        ПРАКТИКА “ОДНА ТОЧКА ОЧИЩЕНИЯ”
+                    </h2>
+                    <p class="text-xs text-lunar-600">Не нужно убирать весь дом. Выберите одну маленькую зону:</p>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2 text-sm">
+                    <div class="p-2 border border-lunar-200 rounded-lg">☐ тумбочка</div>
+                    <div class="p-2 border border-lunar-200 rounded-lg">☐ сумка</div>
+                    <div class="p-2 border border-lunar-200 rounded-lg">☐ кошелек</div>
+                    <div class="p-2 border border-lunar-200 rounded-lg">☐ рабочий стол</div>
+                    <div class="p-2 border border-lunar-200 rounded-lg">☐ полка</div>
+                    <div class="p-2 border border-lunar-200 rounded-lg">☐ ящик</div>
+                    <div class="p-2 border border-lunar-200 rounded-lg">☐ телефон / галерея</div>
+                    <div class="p-2 border border-lunar-200 rounded-lg">☐ косметичка</div>
+                    <div class="p-2 border border-lunar-200 rounded-lg">☐ входная зона</div>
+                    <div class="p-2 border border-lunar-200 rounded-lg">☐ неприятное место</div>
+                </div>
+
+                <div class="space-y-2 pt-2">
+                    <label class="block text-sm font-bold text-lunar-900">Моя зона очищения сегодня:</label>
+                    <div class="border-b border-lunar-300 py-1 text-sm">____________________________________________________</div>
+                </div>
+
+                <div class="space-y-2">
+                    <h4 class="text-xs font-bold uppercase tracking-wider text-lunar-900">Что я отпускаю через эту зону?</h4>
+                    <div class="grid grid-cols-2 gap-2 text-xs">
+                        <div class="p-1.5 border border-lunar-200 rounded">☐ хаос</div>
+                        <div class="p-1.5 border border-lunar-200 rounded">☐ тревогу</div>
+                        <div class="p-1.5 border border-lunar-200 rounded">☐ старую обиду</div>
+                        <div class="p-1.5 border border-lunar-200 rounded">☐ усталость</div>
+                        <div class="p-1.5 border border-lunar-200 rounded">☐ страх перемен</div>
+                        <div class="p-1.5 border border-lunar-200 rounded">☐ чувство «все на мне»</div>
+                        <div class="p-1.5 border border-lunar-200 rounded">☐ прошлое</div>
+                        <div class="p-1.5 border border-lunar-200 rounded">☐ ощущение застоя</div>
+                    </div>
+                </div>
+
+                <!-- Highlight Box -->
+                <div class="p-5 bg-lunar-100 rounded-2xl border-l-4 border-lunar-800 space-y-1">
+                    <div class="text-xs font-bold text-lunar-900 uppercase">Фраза во время очищения:</div>
+                    <p class="font-serif-title text-lg italic text-lunar-900 leading-snug">
+                        «Я освобождаю место для легкости, денег, гармонии и новой энергии. Я отпускаю то, что больше не поддерживает меня.»
+                    </p>
+                </div>
+            </div>
+
+            <!-- PAGE 4 -->
+            <div class="pdf-page bg-white p-8 md:p-12 rounded-3xl border border-lunar-200 shadow-md space-y-6">
+                <div class="flex justify-between items-center border-b border-lunar-200 pb-4">
+                    <div class="flex items-center gap-2 text-lunar-700 text-xs uppercase tracking-widest font-semibold">
+                        <span>Освобождение энергии</span>
+                        <span>•</span>
+                        <span>Страница 4</span>
+                    </div>
+                    <div class="text-xs font-serif text-lunar-500">Дом как место силы</div>
+                </div>
+
+                <h2 class="font-serif-title text-3xl font-bold text-lunar-900">
+                    ПРАКТИКА “ЗАВЕРШИТЬ ВНУТРЕННИЙ КОНФЛИКТ”
+                </h2>
+
+                <div class="space-y-4 text-xs md:text-sm">
+                    <div>
+                        <div class="font-bold text-lunar-900">1. Ситуация, которая меня цепляет:</div>
+                        <div class="border-b border-dashed border-lunar-300 py-3">____________________________________________________________________________________</div>
+                    </div>
+
+                    <div>
+                        <div class="font-bold text-lunar-900 mb-1">2. Что я на самом деле чувствую?</div>
+                        <div class="grid grid-cols-4 gap-1.5">
+                            <div class="p-1.5 border border-lunar-200 rounded">☐ обиду</div>
+                            <div class="p-1.5 border border-lunar-200 rounded">☐ злость</div>
+                            <div class="p-1.5 border border-lunar-200 rounded">☐ усталость</div>
+                            <div class="p-1.5 border border-lunar-200 rounded">☐ боль</div>
+                            <div class="p-1.5 border border-lunar-200 rounded">☐ одиночество</div>
+                            <div class="p-1.5 border border-lunar-200 rounded">☐ несправедливость</div>
+                            <div class="p-1.5 border border-lunar-200 rounded">☐ страх</div>
+                            <div class="p-1.5 border border-lunar-200 rounded">☐ разочарование</div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="font-bold text-lunar-900">3. Что я хотела бы сказать, но не сказала?</div>
+                        <div class="border-b border-dashed border-lunar-300 py-3">____________________________________________________________________________________</div>
+                    </div>
+
+                    <div>
+                        <div class="font-bold text-lunar-900 mb-1">4. Что мне важно вернуть себе из этой ситуации?</div>
+                        <div class="grid grid-cols-4 gap-1.5">
+                            <div class="p-1.5 border border-lunar-200 rounded">☐ спокойствие</div>
+                            <div class="p-1.5 border border-lunar-200 rounded">☐ достоинство</div>
+                            <div class="p-1.5 border border-lunar-200 rounded">☐ границы</div>
+                            <div class="p-1.5 border border-lunar-200 rounded">☐ энергию</div>
+                            <div class="p-1.5 border border-lunar-200 rounded">☐ быть услышанной</div>
+                            <div class="p-1.5 border border-lunar-200 rounded">☐ выбрать себя</div>
+                            <div class="p-1.5 border border-lunar-200 rounded">☐ не доказывать</div>
+                            <div class="p-1.5 border border-lunar-200 rounded">☐ отпустить</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Highlight Box -->
+                <div class="p-5 bg-sage-100 rounded-2xl border-l-4 border-sage-500 space-y-1">
+                    <div class="text-xs font-bold text-lunar-900 uppercase">Фраза завершения:</div>
+                    <p class="font-serif-title text-lg italic text-lunar-900 leading-snug">
+                        «Я возвращаю свою энергию из этой ситуации. Я выбираю не носить это внутри. Я оставляю себе опыт, но отпускаю тяжесть.»
+                    </p>
+                </div>
+            </div>
+
+            <!-- PAGE 5 -->
+            <div class="pdf-page bg-white p-8 md:p-12 rounded-3xl border border-lunar-200 shadow-md space-y-8">
+                <div class="flex justify-between items-center border-b border-lunar-200 pb-4">
+                    <div class="flex items-center gap-2 text-lunar-700 text-xs uppercase tracking-widest font-semibold">
+                        <span>Заключение</span>
+                        <span>•</span>
+                        <span>Страница 5</span>
+                    </div>
+                    <div class="text-xs font-serif text-lunar-500">Дом как место силы</div>
+                </div>
+
+                <div class="space-y-2">
+                    <h2 class="font-serif-title text-3xl font-bold text-lunar-900">
+                        МОЕ НАМЕРЕНИЕ НА УБЫВАЮЩУЮ ЛУНУ
+                    </h2>
+                    <p class="text-xs text-lunar-700 italic">
+                        «До 12 августа я выбираю мягко освобождаться от того, что больше не поддерживает меня.»
+                    </p>
+                </div>
+
+                <div class="space-y-4 text-xs md:text-sm">
+                    <div>
+                        <div class="font-bold text-lunar-900 mb-1">Я отпускаю:</div>
+                        <div class="border-b border-lunar-300 py-3">____________________________________________________________________________________</div>
+                    </div>
+
+                    <div>
+                        <div class="font-bold text-lunar-900 mb-1">Я возвращаю себе:</div>
+                        <div class="border-b border-lunar-300 py-3">____________________________________________________________________________________</div>
+                    </div>
+
+                    <div>
+                        <div class="font-bold text-lunar-900 mb-1">Я хочу, чтобы мой дом стал пространством:</div>
+                        <div class="border-b border-lunar-300 py-3">____________________________________________________________________________________</div>
+                    </div>
+
+                    <div>
+                        <div class="font-bold text-lunar-900 mb-1">Мое маленькое действие на сегодня:</div>
+                        <div class="border-b border-lunar-300 py-3">____________________________________________________________________________________</div>
+                    </div>
+                </div>
+
+                <!-- Main Affirmation Box -->
+                <div class="p-6 bg-lunar-900 text-white rounded-3xl space-y-2 text-center">
+                    <div class="text-xs font-bold text-amber-300 uppercase tracking-widest">Моя фраза силы</div>
+                    <p class="font-serif-title text-xl italic leading-relaxed text-lunar-100">
+                        «Мой дом поддерживает меня. Мое пространство очищается. Моя энергия возвращается ко мне. Я выбираю легкость, гармонию и внутреннюю опору.»
+                    </p>
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="no-print bg-lunar-100 border-t border-lunar-200 py-6 text-center text-xs text-lunar-600">
+        <div class="max-w-5xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div>
+                © Практика «Дом как место силы» • Очищение на убывающую Луну
+            </div>
+            <div class="flex items-center gap-4 text-lunar-700">
+                <button onclick="window.scrollTo({top: 0, behavior: 'smooth'})" class="hover:underline flex items-center gap-1">
+                    <i data-lucide="arrow-up" class="w-3.5 h-3.5"></i>
+                    Наверх
+                </button>
+            </div>
+        </div>
+    </footer>
+
+    <!-- JavaScript Application Logic -->
+    <script>
+        let currentSlide = 0;
+        const totalSlides = 5;
+        const slideTitles = [
+            "Диагностика пространства",
+            "Где утекает моя энергия?",
+            "Практика «Одна точка очищения»",
+            "Практика «Завершить внутренний конфликт»",
+            "Мое намерение на убывающую Луну"
+        ];
+
+        lucide.createIcons();
+
+        function setMode(mode) {
+            const cardsBtn = document.getElementById('btn-mode-cards');
+            const pdfBtn = document.getElementById('btn-mode-pdf');
+            const interactiveContainer = document.getElementById('interactive-container');
+            const pdfContainer = document.getElementById('pdf-container');
+
+            if (mode === 'cards') {
+                cardsBtn.className = 'px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 bg-white text-lunar-900 shadow-sm font-semibold';
+                pdfBtn.className = 'px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 text-lunar-600 hover:text-lunar-900';
+                interactiveContainer.classList.remove('hidden');
+                pdfContainer.classList.add('hidden');
+            } else {
+                pdfBtn.className = 'px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 bg-white text-lunar-900 shadow-sm font-semibold';
+                cardsBtn.className = 'px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 text-lunar-600 hover:text-lunar-900';
+                pdfContainer.classList.remove('hidden');
+                interactiveContainer.classList.add('hidden');
+            }
+        }
+
+        function changeSlide(direction) {
+            goToSlide(currentSlide + direction);
+        }
+
+        function goToSlide(index) {
+            if (index < 0 || index >= totalSlides) return;
+            
+            const slides = document.querySelectorAll('.slide-content');
+            slides[currentSlide].classList.add('hidden');
+            
+            currentSlide = index;
+            slides[currentSlide].classList.remove('hidden');
+
+            document.getElementById('current-slide-num').innerText = currentSlide + 1;
+            document.getElementById('slide-title-header').innerText = slideTitles[currentSlide];
+
+            const nextBtnText = document.getElementById('btn-next-text');
+            if (currentSlide === totalSlides - 1) {
+                nextBtnText.innerText = "Завершить";
+            } else {
+                nextBtnText.innerText = "Далее";
+            }
+
+            document.getElementById('btn-prev').disabled = (currentSlide === 0);
+
+            const dots = document.getElementById('slide-dots').children;
+            for (let i = 0; i < dots.length; i++) {
+                if (i === currentSlide) {
+                    dots[i].className = 'w-6 h-3 rounded-full bg-lunar-800 transition-all';
+                } else {
+                    dots[i].className = 'w-3 h-3 rounded-full bg-lunar-200 transition-all hover:bg-lunar-300';
+                }
+            }
+
+            window.scrollTo({ top: 100, behavior: 'smooth' });
+        }
+
+        // Modal Controls
+        function openShareModal() {
+            const modal = document.getElementById('share-modal');
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+            }, 10);
+        }
+
+        function closeShareModal() {
+            const modal = document.getElementById('share-modal');
+            modal.classList.add('opacity-0');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 200);
+        }
+
+        function copyText(elementId) {
+            const element = document.getElementById(elementId);
+            if (!element) return;
+            const textToCopy = element.innerText;
+            
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(textToCopy).then(() => showToast("Фраза скопирована!"));
+            } else {
+                const textarea = document.createElement('textarea');
+                textarea.value = textToCopy;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                showToast("Фраза скопирована!");
+            }
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            const toastText = document.getElementById('toast-text');
+            toastText.innerText = message;
+
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            toast.classList.add('translate-y-0', 'opacity-100');
+
+            setTimeout(() => {
+                toast.classList.remove('translate-y-0', 'opacity-100');
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 3000);
+        }
+
+        function triggerPrint() {
+            setMode('pdf');
+            setTimeout(() => {
+                window.print();
+            }, 200);
+        }
+
+        goToSlide(0);
+    </script>
+</body>
+</html>
